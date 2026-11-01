@@ -242,6 +242,28 @@ func TestUpsertProviderJobNextCheckAtTerminalHandling(t *testing.T) {
 	}
 }
 
+// TestUpsertProviderJobKeepsFailedInteractionDue pins that a failed or cancelled interaction stays
+// due: unlike a batch, a run that stopped can still owe for the work it did, so the sweeper must
+// still settle it if the inline settlement did not.
+func TestUpsertProviderJobKeepsFailedInteractionDue(t *testing.T) {
+	store := setupBatchJobTestStore(t)
+	ctx := context.Background()
+	next := time.Now().UTC().Add(time.Hour).UTC()
+	for _, status := range []string{"failed", "cancelled"} {
+		id := tables.ProviderJobID(tables.ProviderJobKindInteraction, "gemini", "int_"+status)
+		require.NoError(t, store.UpsertProviderJob(ctx, &tables.TableProviderJob{
+			ID:               id,
+			Kind:             tables.ProviderJobKindInteraction,
+			Provider:         "gemini",
+			JobID:            "int_" + status,
+			AccountingStatus: tables.ProviderJobAccountingStatusPending,
+			NextCheckAt:      &next,
+			ProviderStatus:   status,
+		}))
+		assert.NotNil(t, getBatchJob(t, store, id).NextCheckAt, "a %s interaction keeps next_check_at", status)
+	}
+}
+
 func TestListDueProviderJobsFiltersByDueAndStatus(t *testing.T) {
 	store := setupBatchJobTestStore(t)
 	ctx := context.Background()

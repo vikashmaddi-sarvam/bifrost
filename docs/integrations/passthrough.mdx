@@ -109,6 +109,19 @@ Claude Code OAuth sign-in (`Authorization: Bearer sk-ant-oat…`) is handled sep
   - Request body `model` containing a Vertex resource path
   - OAuth token pattern typically used for Vertex (`Bearer ya29...`)
 
+#### Interactions and agents
+
+An Interactions create (`POST .../interactions`) can name an `agent`, such as `deep-research-preview-04-2026`, instead of a `model`. Bifrost treats the agent as the request's model for key selection, virtual-key model restrictions, and pricing. Polling, cancelling, or deleting a run (`GET`, `DELETE`, or `POST .../cancel` on `/interactions/{id}`) starts nothing new, so a virtual key with an allowed-models list can still do them.
+
+Google stores each run and reports its full usage on every read. Bifrost bills the run once, not once per read:
+
+- The create records the run. Its log row names the agent but carries no cost.
+- The first read that finds the run finished writes one cost row under the create. That read can be the create itself, a poll, a resumed stream, or a cancel. Budgets and rate limits are charged at that point, to the virtual key that created the run.
+- Later reads of the same run cost nothing.
+- If no client reads a run to the end, Bifrost polls it with the key that created it and bills it when it finishes. This covers a background Deep Research run you stopped polling, or a stream that closed early.
+
+Billing a run needs a config store, the same as batch and video accounting. A run whose create did not go through Bifrost is never billed when you poll it.
+
 ---
 
 ## Usage Examples
