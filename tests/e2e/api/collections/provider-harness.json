@@ -23093,6 +23093,156 @@
               }
             },
             {
+              "name": "Bedrock: stop sequences omitted for DeepSeek V3.2 via /anthropic/v1/messages",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "anthropic-version",
+                    "value": "2023-06-01"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"model\": \"bedrock/deepseek.v3.2\",\n  \"max_tokens\": 200,\n  \"messages\": [{\"role\":\"user\",\"content\":\"Count: one, two, three, four in lowercase\"}],\n  \"stop_sequences\": [\"</block>\"]\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/anthropic/v1/messages",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "anthropic",
+                    "v1",
+                    "messages"
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "// Converse rejects inferenceConfig.stopSequences for DeepSeek V3.2 with a 400. Claude Code's auto-mode",
+                      "// classifier sends stop_sequences on every call, so the gateway must omit the field rather than fail.",
+                      "pm.test('Status 200: stopSequences was not forwarded to Converse', function () {",
+                      "  pm.expect(pm.response.code, 'expected 200, got ' + pm.response.code + ': ' + pm.response.text()).to.equal(200);",
+                      "});",
+                      "pm.test('Anthropic message with text content', function () {",
+                      "  var j = pm.response.json();",
+                      "  pm.expect(j.type, pm.response.text()).to.equal('message');",
+                      "  var text = (j.content || []).filter(function (b) { return b.type === 'text'; }).map(function (b) { return b.text; }).join('');",
+                      "  pm.expect(text, 'no text content: ' + pm.response.text()).to.not.be.empty;",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Bedrock: stop sequences omitted for DeepSeek V3.2 via /v1/chat/completions",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"model\": \"bedrock/deepseek.v3.2\",\n  \"max_tokens\": 200,\n  \"messages\": [{\"role\":\"user\",\"content\":\"Count: one, two, three, four in lowercase\"}],\n  \"stop\": [\"</block>\"]\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/v1/chat/completions",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "chat",
+                    "completions"
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "// Same Converse rejection on the chat route: stop must be omitted for DeepSeek V3.2, not forwarded.",
+                      "pm.test('Status 200: stopSequences was not forwarded to Converse', function () {",
+                      "  pm.expect(pm.response.code, 'expected 200, got ' + pm.response.code + ': ' + pm.response.text()).to.equal(200);",
+                      "});",
+                      "pm.test('Assistant content returned', function () {",
+                      "  var j = pm.response.json();",
+                      "  var m = (j.choices && j.choices[0] && j.choices[0].message) || {};",
+                      "  pm.expect(m.content, 'no assistant content: ' + pm.response.text()).to.be.a('string').and.not.empty;",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Bedrock: stop sequences still honored for Claude via /anthropic/v1/messages",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "anthropic-version",
+                    "value": "2023-06-01"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"model\": \"bedrock/global.anthropic.claude-haiku-4-5-20251001-v1:0\",\n  \"max_tokens\": 200,\n  \"messages\": [{\"role\":\"user\",\"content\":\"Count: one, two, three, four in lowercase. Output only the words.\"}],\n  \"stop_sequences\": [\"three\"]\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/anthropic/v1/messages",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "anthropic",
+                    "v1",
+                    "messages"
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "// Control for the DeepSeek omission: families that accept stopSequences on Converse must still get it.",
+                      "pm.test('Status 200', function () {",
+                      "  pm.expect(pm.response.code, 'expected 200, got ' + pm.response.code + ': ' + pm.response.text()).to.equal(200);",
+                      "});",
+                      "pm.test('Stop sequence: halted before stop token', function () {",
+                      "  var j = pm.response.json();",
+                      "  var c = (j.content || []).filter(function (b) { return b.type === 'text'; }).map(function (b) { return b.text; }).join('').toLowerCase();",
+                      "  pm.expect(c, 'the answer before the stop word is missing: ' + pm.response.text()).to.include('two');",
+                      "  pm.expect(c, 'stop token \"three\" leaked, so stopSequences did not reach Converse: ' + pm.response.text()).to.not.include('three');",
+                      "  pm.expect(c, 'text after the stop word leaked: ' + pm.response.text()).to.not.include('four');",
+                      "});"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
               "name": "Bedrock: parallel_tool_calls disabled",
               "request": {
                 "method": "POST",
