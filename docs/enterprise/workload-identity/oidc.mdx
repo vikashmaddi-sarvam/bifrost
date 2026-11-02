@@ -1,0 +1,57 @@
+---
+title: "OIDC providers"
+description: "Map Okta, Auth0, Keycloak or any OIDC provider's machine clients to Bifrost service accounts by client ID, so services call Bifrost with a client-credentials token."
+icon: "key"
+---
+
+Services that already authenticate with your identity provider's **client-credentials** flow can call Bifrost with that access token. Bifrost trusts the provider as an issuer, reads the client ID from the token, and runs the request as the service account that client ID is mapped to.
+
+Add the provider as a **Generic OIDC** trusted issuer and set two things:
+
+- **Workload ID claim:** the claim whose value you enter when mapping a workload, usually the client ID.
+- **People also get tokens from this issuer:** turn it on for any provider your people sign in with, and give the rule only workload tokens pass. Otherwise a person who signs in through the same client could get a token that carries a mapped client ID and runs as that service account. With the rule on, people's tokens are ignored by workload identity and go through the normal sign-in path as themselves.
+
+| Provider | Issuer URL | Workload ID claim | Only accept tokens where |
+|---|---|---|---|
+| Okta | The authorization server's issuer, e.g. `https://acme.okta.com/oauth2/default` | `cid` | `cid` equals the token's `sub` |
+| Auth0 | Your tenant domain with a trailing slash, e.g. `https://acme.us.auth0.com/` | `azp` | `gty` equals `client-credentials` |
+| Keycloak | The realm URL, e.g. `https://sso.acme.com/realms/acme` | `azp` | `preferred_username` starts with `service-account-` |
+| An issuer only workloads use, e.g. a Kubernetes cluster or GitHub Actions | The issuer exactly as tokens carry it in `iss` | `sub` | leave it off: every token is a workload's |
+
+## Step 1: Make tokens addressed to Bifrost
+
+Configure the provider so client-credentials tokens for your services carry Bifrost as their audience:
+
+- **Okta:** use an authorization server whose audience is Bifrost's URL, and a scope your service apps may request.
+- **Auth0:** create an API whose identifier is Bifrost's URL, and authorize your machine-to-machine apps for it.
+- **Keycloak:** add an audience mapper that puts Bifrost's URL in `aud` for the service-account clients.
+
+## Step 2: Add the provider as a trusted issuer
+
+1. In Bifrost, open **User Provisioning**, edit your SSO provider, and go to **Provider Configuration → Workload identity**.
+2. Under **Additional trusted issuers**, select **Add issuer**, choose **Generic OIDC**, paste the issuer URL, set the audience, and fill in the workload ID claim and people rule from the table above.
+3. Select **Test**, then save the provider.
+
+This needs the **User Provisioning** permission.
+
+## Step 3: Map a client to a service account
+
+1. Open the service account under **Governance → Users** and go to **Workload identity**.
+2. Select **Add workload identity**, choose the issuer, and enter the **client ID**.
+3. Select **Add**.
+
+## Step 4: Call Bifrost
+
+The service gets a client-credentials token and sends it as the bearer token. For example, with Auth0:
+
+```bash
+TOKEN=$(curl -s -X POST https://acme.us.auth0.com/oauth/token \
+  -H "Content-Type: application/json" \
+  -d '{"grant_type": "client_credentials", "client_id": "'"$CLIENT_ID"'", "client_secret": "'"$CLIENT_SECRET"'", "audience": "https://bifrost.example.com"}' \
+  | jq -r .access_token)
+
+curl https://bifrost.example.com/v1/chat/completions \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"model": "openai/gpt-4o-mini", "messages": [{"role": "user", "content": "Hello"}]}'
+```

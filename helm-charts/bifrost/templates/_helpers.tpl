@@ -1027,6 +1027,24 @@ false
 {{- if .Values.bifrost.accessProfiles }}
 {{- $_ := set $config "access_profiles" .Values.bifrost.accessProfiles }}
 {{- end }}
+{{- /* Workload Identity (Enterprise) */ -}}
+{{- if and .Values.bifrost.workloadIdentity .Values.bifrost.workloadIdentity.mappings }}
+{{- range .Values.bifrost.workloadIdentity.mappings }}
+{{- if or (not .id) (not .name) (not .platform) }}
+{{- fail "ERROR: bifrost.workloadIdentity.mappings[] needs id, name and platform." }}
+{{- end }}
+{{- if and (eq .platform "entra") (not .object_id) }}
+{{- fail (printf "ERROR: workload identity mapping '%s' needs object_id." .id) }}
+{{- end }}
+{{- if and (eq .platform "oidc") (or (not .issuer_id) (not .subject)) }}
+{{- fail (printf "ERROR: workload identity mapping '%s' needs issuer_id and subject." .id) }}
+{{- end }}
+{{- if eq (and (hasKey . "service_account") (hasKey . "service_account_id")) (or (hasKey . "service_account") (hasKey . "service_account_id")) }}
+{{- fail (printf "ERROR: workload identity mapping '%s' needs exactly one of service_account and service_account_id." .id) }}
+{{- end }}
+{{- end }}
+{{- $_ := set $config "workload_identity" .Values.bifrost.workloadIdentity }}
+{{- end }}
 {{- /* Alerting */ -}}
 {{- if .Values.bifrost.alerting }}
 {{- if .Values.bifrost.alerting.rules }}

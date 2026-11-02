@@ -1492,6 +1492,19 @@ bifrost:
       #   accessTokenTtl: 86400   # seconds, 60-86400; 0 or omitted = 86400
       #   provisionUsers: false   # create a Bifrost user for an unknown assertion subject instead of refusing
       #
+      # # Workload identity (Enterprise). Shared across every provider above: token issuers,
+      # # besides the provider itself, whose workload tokens can be mapped to service accounts
+      # # (bifrost.workloadIdentity.mappings or the service account's Workload identity tab).
+      # # Kinds: aws (named by IAM role ARN) or generic (any OIDC issuer; also set identityClaim and
+      # # machineCheck, e.g. Okta: identityClaim cid, machineCheck {kind: sub_equals_claim, claim: cid}).
+      # workloadIdentity:
+      #   additionalTrustedIssuers:
+      #     - id: "aws-prod"              # stable; mappings refer to it
+      #       name: "AWS prod"
+      #       kind: "aws"
+      #       issuerUrl: "https://<id>.tokens.sts.global.api.aws"  # exactly as tokens carry it in iss
+      #       audiences: ["https://bifrost.example.com"]
+      #
       # # Auth proxy / identity-aware proxy (Enterprise). Shared across every provider above:
       # # when a Zero Trust / ZTNA proxy fronts the IdP, Bifrost reads the login credential from the
       # # proxy's header and validates it against the proxy's own keys (not the IdP's).
@@ -1519,6 +1532,8 @@ bifrost:
       # cloud: "commercial"  # or "gcc-high" or "dod"
       # audience: ""
       # appIdUri: ""
+      # # Reject bearer tokens Entra issued for other apps in the tenant (off by default).
+      # enforceAccessTokenAudience: true
       # userIdField: "oid"
       # teamIdsField: "groups"
       # rolesField: "roles"
@@ -1684,6 +1699,28 @@ bifrost:
   #       #     content: "..."          # required when source_type=text
   #       #     # url: "https://..."    # required when source_type=url
   #       #     # dataurl: "data:..."   # required when source_type=dataurl
+
+  # Workload identity (enterprise): let CI pipelines and cloud workloads call Bifrost with a
+  # Microsoft Entra app-only token instead of a stored key, running as a service account.
+  # Rendered as top-level `workload_identity` in config.json. Requires SSO (bifrost.scim).
+  # Workload identity federation (Enterprise): workloads mapped to service accounts call Bifrost
+  # with a token from their own platform instead of a stored key. Azure workload identity
+  # federation is available when SSO is Microsoft Entra; other issuers are set on the SSO
+  # provider under scim.config.workloadIdentity.additionalTrustedIssuers.
+  # workloadIdentity:
+  #   mappings:
+  #     - id: "aks-payments"              # stable id; config.json rows are matched by it
+  #       name: "AKS payments-api"
+  #       platform: "entra"               # Azure workload identity federation
+  #       object_id: "5b1e2c7a-0000-0000-0000-000000000000"  # service principal object ID (token oid)
+  #       service_account: "svc-payments"      # service account name; or service_account_id
+  #     - id: "payments-batch"
+  #       name: "Payments batch (AWS)"
+  #       platform: "oidc"                # one of the SSO provider's additional trusted issuers
+  #       issuer_id: "aws-prod"
+  #       subject: "arn:aws:iam::123456789012:role/payments-batch"
+  #       service_account: "svc-payments"
+  #       # enabled: true
 
   # Access profiles (enterprise): seed RBAC access profile templates from Helm.
   # This is rendered directly as top-level `access_profiles` in config.json.

@@ -1,0 +1,90 @@
+---
+title: "Microsoft Entra"
+description: "Map Azure managed identities and app registrations to Bifrost service accounts so AKS services, Azure Functions and CI pipelines call Bifrost with their Entra token."
+icon: "microsoft"
+---
+
+With Microsoft Entra, a workload calls Bifrost with an **app-only access token** Entra issues for the Bifrost SSO app registration. This covers AKS services using Azure workload identity, Azure VMs and Functions with a managed identity, and Azure DevOps or GitHub pipelines that sign in to Entra with federated credentials. The token's `oid` claim, the object ID of the workload's service principal, is what you map to a service account.
+
+<Info>
+  Workload identity reuses your Entra SSO configuration: the same tenant and app registration. Set up [Entra SSO](../setting-up-entra/oidc) first. Multi-tenant (`common`) configurations are not supported.
+</Info>
+
+## Prerequisites
+
+- Microsoft Entra SSO configured in Bifrost, with the app registration's **Application.Read.All** Graph permission granted if you want to pick workloads from Entra in the dashboard.
+- A service account in Bifrost with an access profile for the workload.
+
+## Step 1: Expose the Bifrost app to applications
+
+Workloads request a token for the Bifrost app registration, so it needs an identifier.
+
+1. In the Entra admin center, open **App registrations** and select the Bifrost SSO app.
+2. Under **Expose an API**, set the **Application ID URI**, for example `api://bifrost`. Enter the same value as **App ID URI** in Bifrost's Entra SSO settings.
+
+## Step 2: Map the workload to a service account
+
+1. Open the service account under **Governance → Users** and go to **Workload identity**.
+2. Select **Add workload identity** and choose **Azure workload identity federation**.
+3. Search Entra for the managed identity or app by name, or paste its service principal's object ID. Use the object ID, not the application (client) ID.
+4. Select **Add**. The workload can call Bifrost straight away; its requests appear in the logs under the service account.
+
+To cut a workload off, turn its mapping off or remove it.
+
+## Step 3: Call Bifrost from the workload
+
+The workload requests a token for the Bifrost app, using the scope shown in Bifrost (the App ID URI or client ID with `/.default`), and sends it as the bearer token.
+
+<Tabs>
+  <Tab title="Python (AKS, VM, Functions)">
+```python
+from azure.identity import DefaultAzureCredential
+import requests
+
+token = DefaultAzureCredential().get_token("api://bifrost/.default").token
+
+requests.post(
+    "https://bifrost.example.com/v1/chat/completions",
+    headers={"Authorization": f"Bearer {token}"},
+    json={"model": "openai/gpt-4o-mini", "messages": [{"role": "user", "content": "ping"}]},
+)
+```
+On AKS, enable Azure workload identity for the pod (the `azure.workload.identity/use` label and a service account annotated with the managed identity's client ID). `DefaultAzureCredential` then picks it up without a secret.
+  </Tab>
+  <Tab title="Azure CLI">
+```bash
+TOKEN=$(az account get-access-token --scope api://bifrost/.default --query accessToken -o tsv)
+curl https://bifrost.example.com/v1/chat/completions \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d @request.json
+```
+  </Tab>
+  <Tab title="GitHub Actions">
+```yaml
+permissions:
+  id-token: write
+steps:
+  - uses: azure/login@v2
+    with:
+      client-id: ${{ vars.CI_CLIENT_ID }}
+      tenant-id: ${{ vars.TENANT_ID }}
+      allow-no-subscriptions: true
+  - run: |
+      TOKEN=$(az account get-access-token --scope api://bifrost/.default --query accessToken -o tsv)
+      curl https://bifrost.example.com/v1/chat/completions \
+        -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d @request.json
+```
+The CI app registration needs a federated credential for the repository, and its service principal is the one you map.
+  </Tab>
+</Tabs>
+
+## Troubleshooting
+
+**401 invalid workload identity token.** The token is expired, was issued for another app, or is valid for over 24 hours. Check that the scope is the Bifrost app's App ID URI or client ID with `/.default`. If the app registration issues v1 tokens (`accessTokenAcceptedVersion` unset or 1), the token's audience is the App ID URI, so make sure it is set in Bifrost's Entra SSO settings.
+
+**403 not connected to a Bifrost service account.** The message includes the token's object ID. Map it to a service account.
+
+**Entra refuses the token request with `AADSTS501051`.** The Bifrost enterprise application has **Assignment required** turned on, so Entra issues tokens only to apps assigned one of its app roles. Assign the workload an app role on the Bifrost app, or turn **Assignment required** off.
+
+**The workload isn't in the Entra search.** Without a search, Bifrost lists managed identities and apps registered in your tenant; search by name to find others, or paste the object ID. The list needs the app registration's **Application.Read.All** permission.
+
+**A person's SSO stops working.** It shouldn't: workload identity only takes app-only tokens. A person's token always carries the `scp` claim and goes through the normal sign-in path.

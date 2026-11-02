@@ -1,0 +1,14 @@
+---
+title: "v2.1.48"
+description: "Helm v2.1.48 changelog - 2026-11-02"
+---
+
+<Update label="Bifrost Helm" description="v2.1.48">
+
+## Changelog
+
+- Added `bifrost.workloadIdentity.mappings` (`workload_identity.mappings`, enterprise): map a workload identity to a service account by `service_account` name or `service_account_id`: an Azure workload identity (`platform: entra`, `object_id`) or an identity from one of the SSO provider's additional trusted issuers (`platform: oidc`, `issuer_id`, `subject` such as an IAM role ARN or client ID). Rendering fails on a missing `object_id` or `issuer_id`/`subject`, or unless exactly one service account reference is set.
+- Added `workloadIdentity.additionalTrustedIssuers` to every `bifrost.scim.config` provider (`scim_config.config.workloadIdentity`, enterprise): token issuers besides the SSO provider (`kind` `aws`, or `generic` with `identityClaim` and `machineCheck`, plus `issuerUrl` and `audiences`) whose workload tokens can be mapped to service accounts.
+- Added `enforceAccessTokenAudience` to the Entra `bifrost.scim.config` (`scim_config.config.enforceAccessTokenAudience`): when true, bearer tokens Entra issued for other apps in the tenant are rejected. Off by default.
+
+</Update>
