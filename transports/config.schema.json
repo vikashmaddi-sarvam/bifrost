@@ -5426,6 +5426,9 @@
     "access_profiles": {
       "$ref": "#/$defs/access_profiles"
     },
+    "workload_identity": {
+      "$ref": "#/$defs/workload_identity_config"
+    },
     "feature_flags": {
       "$ref": "#/$defs/feature_flags_config"
     },
@@ -11196,6 +11199,9 @@
         "crossAppAccess": {
           "$ref": "#/$defs/scim_cross_app_access"
         },
+        "workloadIdentity": {
+          "$ref": "#/$defs/scim_workload_identity"
+        },
         "attributeTeamMappings": {
           "$ref": "#/$defs/scim_attribute_team_mappings"
         },
@@ -11263,6 +11269,11 @@
           "format": "uri",
           "description": "App ID URI for v1.0 tokens (e.g., api://{clientId})"
         },
+        "enforceAccessTokenAudience": {
+          "type": "boolean",
+          "default": false,
+          "description": "Reject bearer access tokens whose audience is not this app (clientId, appIdUri or audience). Off by default for compatibility; turn on so tokens Entra issued for other apps in the tenant are not accepted."
+        },
         "userIdField": {
           "type": "string",
           "description": "JWT claim field for user ID (default: 'oid')",
@@ -11300,6 +11311,9 @@
         },
         "crossAppAccess": {
           "$ref": "#/$defs/scim_cross_app_access"
+        },
+        "workloadIdentity": {
+          "$ref": "#/$defs/scim_workload_identity"
         },
         "attributeTeamMappings": {
           "$ref": "#/$defs/scim_attribute_team_mappings"
@@ -11389,6 +11403,9 @@
         },
         "crossAppAccess": {
           "$ref": "#/$defs/scim_cross_app_access"
+        },
+        "workloadIdentity": {
+          "$ref": "#/$defs/scim_workload_identity"
         },
         "attributeTeamMappings": {
           "$ref": "#/$defs/scim_attribute_team_mappings"
@@ -11491,6 +11508,9 @@
         "crossAppAccess": {
           "$ref": "#/$defs/scim_cross_app_access"
         },
+        "workloadIdentity": {
+          "$ref": "#/$defs/scim_workload_identity"
+        },
         "attributeTeamMappings": {
           "$ref": "#/$defs/scim_attribute_team_mappings"
         },
@@ -11578,6 +11598,9 @@
         },
         "crossAppAccess": {
           "$ref": "#/$defs/scim_cross_app_access"
+        },
+        "workloadIdentity": {
+          "$ref": "#/$defs/scim_workload_identity"
         },
         "attributeTeamMappings": {
           "$ref": "#/$defs/scim_attribute_team_mappings"
@@ -11683,6 +11706,9 @@
         },
         "crossAppAccess": {
           "$ref": "#/$defs/scim_cross_app_access"
+        },
+        "workloadIdentity": {
+          "$ref": "#/$defs/scim_workload_identity"
         },
         "attributeTeamMappings": {
           "$ref": "#/$defs/scim_attribute_team_mappings"
@@ -11827,6 +11853,9 @@
         },
         "crossAppAccess": {
           "$ref": "#/$defs/scim_cross_app_access"
+        },
+        "workloadIdentity": {
+          "$ref": "#/$defs/scim_workload_identity"
         },
         "attributeTeamMappings": {
           "$ref": "#/$defs/scim_attribute_team_mappings"
@@ -12329,6 +12358,227 @@
           }
         }
       },
+      "additionalProperties": false
+    },
+    "workload_identity_config": {
+      "type": "object",
+      "description": "Enterprise workload identity federation: lets a CI pipeline or cloud workload call inference endpoints with a short-lived token from its own platform, running as the Bifrost service account it is mapped to instead of using a stored key. Azure workload identity federation is available when SSO is Microsoft Entra; other issuers are set on the SSO provider under workloadIdentity.additionalTrustedIssuers.",
+      "properties": {
+        "mappings": {
+          "type": "array",
+          "description": "Workload identities mapped to service accounts.",
+          "items": {
+            "$ref": "#/$defs/workload_identity_mapping"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "workload_identity_mapping": {
+      "type": "object",
+      "description": "One workload identity mapped to a service account.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Stable identifier for this mapping. Bifrost matches file entries to stored rows by this value."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Display name, e.g. 'AKS payments-api'."
+        },
+        "platform": {
+          "type": "string",
+          "enum": [
+            "entra",
+            "oidc"
+          ],
+          "description": "Where the workload's token comes from. 'entra' is Azure workload identity federation: Microsoft Entra app-only tokens issued for the Bifrost SSO app registration. 'oidc' is one of the SSO provider's additional trusted issuers, named in issuer_id."
+        },
+        "object_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "For 'entra': the object ID of the managed identity or application's service principal (the token's oid claim)."
+        },
+        "issuer_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "For 'oidc': the id of one of the SSO provider's additional trusted issuers."
+        },
+        "subject": {
+          "type": "string",
+          "minLength": 1,
+          "description": "For 'oidc': the value of the issuer's identity claim that names the workload, e.g. an IAM role ARN or a client ID."
+        },
+        "service_account": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Name of the service account the workload runs as. It must match exactly one service account."
+        },
+        "service_account_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "ID of the service account the workload runs as. Use instead of service_account."
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Set to false to keep the mapping but refuse its tokens."
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "platform"
+      ],
+      "allOf": [
+        {
+          "oneOf": [
+            {
+              "required": [
+                "service_account"
+              ]
+            },
+            {
+              "required": [
+                "service_account_id"
+              ]
+            }
+          ]
+        },
+        {
+          "if": {
+            "properties": {
+              "platform": {
+                "const": "entra"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "object_id"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "platform": {
+                "const": "oidc"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "issuer_id",
+              "subject"
+            ]
+          }
+        }
+      ],
+      "additionalProperties": false
+    },
+    "scim_workload_identity": {
+      "type": "object",
+      "description": "Workload identity on this SSO provider: token issuers, besides the provider itself, whose workload tokens can be mapped to service accounts.",
+      "properties": {
+        "additionalTrustedIssuers": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "$ref": "#/$defs/scim_trusted_issuer"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "scim_trusted_issuer": {
+      "type": "object",
+      "description": "A token issuer whose workload tokens, addressed to one of its audiences, can authenticate the service accounts they are mapped to.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Stable identifier; mappings name it in issuer_id."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Display name, e.g. 'AWS prod'."
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+              "aws",
+              "generic"
+            ],
+          "description": "'aws' trusts AWS STS outbound identity federation tokens, named by IAM role ARN. 'generic' trusts any OIDC issuer and takes identityClaim and machineCheck from this entry; for an issuer that also signs people in (Okta, Auth0, Keycloak), machineCheck says which tokens are workloads'."
+        },
+        "issuerUrl": {
+          "type": "string",
+          "pattern": "^https://",
+          "description": "The issuer exactly as tokens carry it in iss. Signing keys are found through its OIDC discovery document."
+        },
+        "audiences": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 10,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Audiences a workload token must be addressed to, typically this Bifrost's URL."
+        },
+        "identityClaim": {
+          "type": "string",
+          "minLength": 1,
+          "description": "For 'generic': the claim whose value names the workload, e.g. client_id or sub."
+        },
+        "machineCheck": {
+          "type": "object",
+          "description": "For 'generic': how a workload's token is told from a person's, whose tokens are never accepted. 'any' when the issuer only issues to workloads; otherwise a rule only workload tokens pass, e.g. Okta sub_equals_claim cid, Auth0 claim_equals gty client-credentials, Keycloak claim_prefix preferred_username service-account-.",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "any",
+                "sub_equals_claim",
+                "claim_equals",
+                "claim_prefix"
+              ]
+            },
+            "claim": {
+              "type": "string"
+            },
+            "value": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false
+        },
+        "maxLifetimeSeconds": {
+          "type": "integer",
+          "minimum": 300,
+          "maximum": 172800,
+          "description": "Longest total token lifetime accepted. Defaults to 24 hours."
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Set to true to keep the issuer and its mappings but refuse its tokens."
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "kind",
+        "issuerUrl",
+        "audiences"
+      ],
       "additionalProperties": false
     },
     "access_profiles": {

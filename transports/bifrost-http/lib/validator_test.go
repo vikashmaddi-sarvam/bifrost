@@ -171,6 +171,38 @@ func TestValidateConfigSchema_GlobalProxyTypes(t *testing.T) {
 	}
 }
 
+// TestValidateConfigSchema_WorkloadIdentity pins the workload_identity section: a mapping
+// names its platform, the workload's identity and exactly one service account reference.
+func TestValidateConfigSchema_WorkloadIdentity(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		connection string
+		valid      bool
+	}{
+		{"by service account name", `{"id": "ci", "name": "CI", "platform": "entra", "object_id": "5b1e2c7a", "service_account": "svc-ci"}`, true},
+		{"by service account id", `{"id": "ci", "name": "CI", "platform": "entra", "object_id": "5b1e2c7a", "service_account_id": "u-1", "enabled": false}`, true},
+		{"both service account references", `{"id": "ci", "name": "CI", "platform": "entra", "object_id": "5b1e2c7a", "service_account": "svc-ci", "service_account_id": "u-1"}`, false},
+		{"no service account reference", `{"id": "ci", "name": "CI", "platform": "entra", "object_id": "5b1e2c7a"}`, false},
+		{"unknown platform", `{"id": "ci", "name": "CI", "platform": "github", "object_id": "repo:acme/app", "service_account": "svc-ci"}`, false},
+		{"unknown field", `{"id": "ci", "name": "CI", "platform": "entra", "object_id": "5b1e2c7a", "service_account": "svc-ci", "allow_mcp": true}`, false},
+		{"oidc role ARN", `{"id": "batch", "name": "Batch", "platform": "oidc", "issuer_id": "aws-prod", "subject": "arn:aws:iam::123456789012:role/batch", "service_account": "svc-ci"}`, true},
+		{"entra without object id", `{"id": "ci", "name": "CI", "platform": "entra", "service_account": "svc-ci"}`, false},
+		{"oidc without issuer", `{"id": "batch", "name": "Batch", "platform": "oidc", "subject": "arn:aws:iam::123456789012:role/batch", "service_account": "svc-ci"}`, false},
+		{"oidc without subject", `{"id": "batch", "name": "Batch", "platform": "oidc", "issuer_id": "aws-prod", "service_account": "svc-ci"}`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			config := `{"workload_identity": {"mappings": [` + tc.connection + `]}}`
+			err := ValidateConfigSchema([]byte(config), loadLocalSchema(t))
+			if tc.valid && err != nil {
+				t.Fatalf("expected connection to pass validation: %v", err)
+			}
+			if !tc.valid && err == nil {
+				t.Fatal("expected connection to fail validation")
+			}
+		})
+	}
+}
+
 func TestValidateConfigSchema_WarpSection(t *testing.T) {
 	validConfig := `{
 		"warp": {
@@ -2761,8 +2793,9 @@ func TestSchemaSCIMConfigValidation(t *testing.T) {
 }
 
 // TestSchemaSCIMSharedProvisioningFields pins the fields every identity provider inherits from
-// the enterprise mapping.ProvisioningConfig: Cross App Access (crossAppAccess), the token
-// exchange host allowlist (tokenExchangeHosts) and accessProfileResolutionStrategy. Each
+// the enterprise mapping.ProvisioningConfig: Cross App Access (crossAppAccess), workload
+// identity (workloadIdentity), the token exchange host allowlist (tokenExchangeHosts) and
+// accessProfileResolutionStrategy. Each
 // provider's config refuses unknown keys, so a provider missing one of them rejects a config
 // the loader accepts.
 func TestSchemaSCIMSharedProvisioningFields(t *testing.T) {
@@ -2784,6 +2817,7 @@ func TestSchemaSCIMSharedProvisioningFields(t *testing.T) {
 	for provider := range providers {
 		t.Run(provider+" accepts the shared provisioning fields", func(t *testing.T) {
 			extra := `,"crossAppAccess":{"enabled":true,"accessTokenTtl":3600,"provisionUsers":false},` +
+				`"workloadIdentity":{"additionalTrustedIssuers":[{"id":"aws-prod","name":"AWS prod","kind":"aws","issuerUrl":"https://abc.tokens.sts.global.api.aws","audiences":["https://bifrost.example"]}]},` +
 				`"tokenExchangeHosts":["auth.example.com","login.example.com:8443"],` +
 				`"accessProfileResolutionStrategy":"order"`
 			if err := validateConfig(t, compiled, scimConfig(provider, extra)); err != nil {
@@ -2803,6 +2837,10 @@ func TestSchemaSCIMSharedProvisioningFields(t *testing.T) {
 		{name: "crossAppAccess accessTokenTtl below the floor", extra: `,"crossAppAccess":{"enabled":true,"accessTokenTtl":59}`, wantError: true},
 		{name: "crossAppAccess accessTokenTtl above one day", extra: `,"crossAppAccess":{"enabled":true,"accessTokenTtl":86401}`, wantError: true},
 		{name: "crossAppAccess rejects unknown keys", extra: `,"crossAppAccess":{"enabled":true,"trustedIssuer":"https://acme.okta.com"}`, wantError: true},
+		{name: "generic trusted issuer with its claims", extra: `,"workloadIdentity":{"additionalTrustedIssuers":[{"id":"idp","name":"IdP","kind":"generic","issuerUrl":"https://idp.example","audiences":["api://bifrost"],"identityClaim":"client_id","machineCheck":{"kind":"sub_equals_claim","claim":"client_id"},"maxLifetimeSeconds":3600,"disabled":true}]}`},
+		{name: "trusted issuer over plain http", extra: `,"workloadIdentity":{"additionalTrustedIssuers":[{"id":"x","name":"X","kind":"aws","issuerUrl":"http://idp.example","audiences":["a"]}]}`, wantError: true},
+		{name: "trusted issuer without an audience", extra: `,"workloadIdentity":{"additionalTrustedIssuers":[{"id":"x","name":"X","kind":"aws","issuerUrl":"https://idp.example","audiences":[]}]}`, wantError: true},
+		{name: "trusted issuer of an unknown kind", extra: `,"workloadIdentity":{"additionalTrustedIssuers":[{"id":"x","name":"X","kind":"okta","issuerUrl":"https://idp.example","audiences":["a"]}]}`, wantError: true},
 		{name: "tokenExchangeHosts rejects a URL", extra: `,"tokenExchangeHosts":["https://auth.example.com"]`, wantError: true},
 		{name: "tokenExchangeHosts rejects a path", extra: `,"tokenExchangeHosts":["auth.example.com/oauth2"]`, wantError: true},
 		{name: "accessProfileResolutionStrategy rejects unknown values", extra: `,"accessProfileResolutionStrategy":"first"`, wantError: true},
