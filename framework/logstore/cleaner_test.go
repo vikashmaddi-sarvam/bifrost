@@ -255,8 +255,9 @@ func TestLogsCleanerLogsTroubleDoesNotStarveWarpTopicRows(t *testing.T) {
 
 // scriptedRetention returns one scripted result per call, then empty batches.
 type scriptedRetention struct {
-	results []scriptedBatch
-	calls   int
+	results  []scriptedBatch
+	calls    int
+	interval time.Duration
 }
 
 type scriptedBatch struct {
@@ -272,6 +273,8 @@ func (m *scriptedRetention) DeleteLogsBatch(context.Context, time.Time, int) (in
 	r := m.results[m.calls-1]
 	return r.deleted, r.err
 }
+
+func (m *scriptedRetention) RetentionInterval() time.Duration { return m.interval }
 
 // A short batch is what SKIP LOCKED returns when another session holds some
 // expired rows, so it must not end the pass the way it did before.
@@ -295,4 +298,21 @@ func TestDrainExpiredYieldsToLockHolder(t *testing.T) {
 	manager.assignments.expired = 4
 	NewLogsCleaner(manager, CleanerConfig{RetentionDays: 3}, testLogger{}).cleanupOldLogs(context.Background())
 	assert.Zero(t, manager.assignments.expired, "a busy logs table must not hold up the tables after it")
+}
+
+func TestNextRunDurationFollowsStoreInterval(t *testing.T) {
+	hourly := NewLogsCleaner(&scriptedRetention{interval: time.Hour}, CleanerConfig{RetentionDays: 3}, testLogger{})
+	daily := NewLogsCleaner(&logsOnlyRetention{}, CleanerConfig{RetentionDays: 3}, testLogger{})
+	unset := NewLogsCleaner(&scriptedRetention{}, CleanerConfig{RetentionDays: 3}, testLogger{})
+	for range 50 {
+		d := hourly.nextRunDuration()
+		assert.GreaterOrEqual(t, d, time.Hour+time.Hour/96)
+		assert.LessOrEqual(t, d, time.Hour+time.Hour/48)
+
+		d = daily.nextRunDuration()
+		assert.GreaterOrEqual(t, d, 24*time.Hour+15*time.Minute, "the daily jitter is unchanged")
+		assert.LessOrEqual(t, d, 24*time.Hour+30*time.Minute)
+
+		assert.GreaterOrEqual(t, unset.nextRunDuration(), 24*time.Hour, "a zero interval falls back to daily")
+	}
 }

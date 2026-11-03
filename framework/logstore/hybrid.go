@@ -933,6 +933,14 @@ func (h *HybridLogStore) DeleteLogsBatch(ctx context.Context, cutoff time.Time, 
 	return h.inner.DeleteLogsBatch(ctx, cutoff, batchSize)
 }
 
+// RetentionInterval forwards to the inner store's RetentionScheduler.
+func (h *HybridLogStore) RetentionInterval() time.Duration {
+	if scheduler, ok := h.inner.(RetentionScheduler); ok {
+		return scheduler.RetentionInterval()
+	}
+	return cleanupInterval
+}
+
 // DeleteMCPToolLogsBatch deletes old MCP tool log rows in batches. Like
 // DeleteLogsBatch, object-store entries are left to the bucket lifecycle policy.
 func (h *HybridLogStore) DeleteMCPToolLogsBatch(ctx context.Context, cutoff time.Time, batchSize int) (int64, error) {
