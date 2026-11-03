@@ -518,6 +518,11 @@ func (cm *ChatMessage) ToResponsesMessages() []ResponsesMessage {
 
 	// Check if this is an assistant message with multiple tool calls that need expansion
 	if cm.ChatAssistantMessage != nil && cm.ChatAssistantMessage.ToolCalls != nil && len(cm.ChatAssistantMessage.ToolCalls) > 0 {
+		// Text sent alongside the calls becomes its own message item ahead of them.
+		if cm.Content != nil && ((cm.Content.ContentStr != nil && *cm.Content.ContentStr != "") || len(cm.Content.ContentBlocks) > 0) {
+			textOnly := ChatMessage{Role: cm.Role, Content: cm.Content}
+			messages = append(messages, textOnly.ToResponsesMessages()...)
+		}
 		// Expand multiple tool calls into separate function_call items
 		for _, tc := range cm.ChatAssistantMessage.ToolCalls {
 			messageType := ResponsesMessageTypeFunctionCall
@@ -661,6 +666,12 @@ func (cm *ChatMessage) ToResponsesMessages() []ResponsesMessage {
 					GuardContent: block.GuardContent,
 				})
 				rb := &responseBlocks[len(responseBlocks)-1]
+				if blockType == ResponsesOutputMessageContentTypeText {
+					rb.ResponsesOutputMessageContentText = &ResponsesOutputMessageContentText{
+						LogProbs:    []ResponsesOutputMessageContentTextLogProb{},
+						Annotations: []ResponsesOutputMessageContentTextAnnotation{},
+					}
+				}
 
 				// Convert specific block types
 				if block.ImageURLStruct != nil {
@@ -691,6 +702,9 @@ func (cm *ChatMessage) ToResponsesMessages() []ResponsesMessage {
 			}
 			rm.Content = &ResponsesMessageContent{
 				ContentBlocks: responseBlocks,
+			}
+			if cm.Role == ChatMessageRoleAssistant {
+				rm.Status = new("completed")
 			}
 		}
 	}

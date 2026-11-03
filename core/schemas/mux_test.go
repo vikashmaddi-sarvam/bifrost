@@ -259,6 +259,133 @@ func TestToResponsesMessages_EmitsReasoningMessageBeforeToolCalls(t *testing.T) 
 	}
 }
 
+func TestToResponsesMessages_KeepsTextBeforeToolCalls(t *testing.T) {
+	text := "Let me list the files first."
+	cm := &ChatMessage{
+		Role:    ChatMessageRoleAssistant,
+		Content: &ChatMessageContent{ContentStr: &text},
+		ChatAssistantMessage: &ChatAssistantMessage{
+			ToolCalls: []ChatAssistantMessageToolCall{
+				{ID: Ptr("call_1"), Type: Ptr("function"), Function: ChatAssistantMessageToolCallFunction{Name: Ptr("Bash"), Arguments: `{"command":"ls -la"}`}},
+				{ID: Ptr("call_2"), Type: Ptr("function"), Function: ChatAssistantMessageToolCallFunction{Name: Ptr("Read"), Arguments: `{"file_path":"README.md"}`}},
+			},
+		},
+	}
+
+	out := cm.ToResponsesMessages()
+	if len(out) != 3 {
+		t.Fatalf("expected 3 messages (text message + 2 function_calls), got %d", len(out))
+	}
+	if out[0].Type == nil || *out[0].Type != ResponsesMessageTypeMessage {
+		t.Fatalf("expected first item to be a message, got %#v", out[0].Type)
+	}
+	if out[0].Role == nil || *out[0].Role != ResponsesInputMessageRoleAssistant {
+		t.Fatalf("expected assistant role, got %#v", out[0].Role)
+	}
+	if out[0].Content == nil || len(out[0].Content.ContentBlocks) != 1 || out[0].Content.ContentBlocks[0].Text == nil || *out[0].Content.ContentBlocks[0].Text != text {
+		t.Fatalf("expected text %q in first item, got %#v", text, out[0].Content)
+	}
+	for i, name := range []string{"Bash", "Read"} {
+		fc := out[i+1]
+		if fc.Type == nil || *fc.Type != ResponsesMessageTypeFunctionCall || fc.ResponsesToolMessage == nil || fc.ResponsesToolMessage.Name == nil || *fc.ResponsesToolMessage.Name != name {
+			t.Fatalf("expected item %d to be function_call %q, got %#v", i+1, name, fc)
+		}
+	}
+
+	// Round trip back to chat must keep the text, ahead of both calls.
+	back := ToChatMessages(out)
+	if len(back) == 0 || back[0].Content == nil || (back[0].Content.ContentStr == nil && len(back[0].Content.ContentBlocks) == 0) {
+		t.Fatalf("expected round trip to keep the text first, got %#v", back)
+	}
+	calls := 0
+	for _, m := range back {
+		if m.ChatAssistantMessage != nil {
+			calls += len(m.ChatAssistantMessage.ToolCalls)
+		}
+	}
+	if calls != 2 {
+		t.Fatalf("expected round trip to keep 2 tool calls, got %d", calls)
+	}
+}
+
+// TestToResponsesMessages_AssistantTextBlocksMatchStringContent pins that
+// assistant text sent as content blocks converts like string content: an
+// output_text block with annotations and logprobs, and a completed status.
+func TestToResponsesMessages_AssistantTextBlocksMatchStringContent(t *testing.T) {
+	text := "Let me list the files first."
+	toolCalls := []ChatAssistantMessageToolCall{
+		{ID: Ptr("call_1"), Type: Ptr("function"), Function: ChatAssistantMessageToolCallFunction{Name: Ptr("Bash"), Arguments: `{"command":"ls"}`}},
+	}
+	cases := []struct {
+		name    string
+		content *ChatMessageContent
+		calls   []ChatAssistantMessageToolCall
+	}{
+		{name: "string", content: &ChatMessageContent{ContentStr: &text}},
+		{name: "blocks", content: &ChatMessageContent{ContentBlocks: []ChatContentBlock{{Type: ChatContentBlockTypeText, Text: &text}}}},
+		{name: "string with tool calls", content: &ChatMessageContent{ContentStr: &text}, calls: toolCalls},
+		{name: "blocks with tool calls", content: &ChatMessageContent{ContentBlocks: []ChatContentBlock{{Type: ChatContentBlockTypeText, Text: &text}}}, calls: toolCalls},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cm := &ChatMessage{Role: ChatMessageRoleAssistant, Content: tc.content}
+			if tc.calls != nil {
+				cm.ChatAssistantMessage = &ChatAssistantMessage{ToolCalls: tc.calls}
+			}
+			out := cm.ToResponsesMessages()
+			if len(out) == 0 || out[0].Content == nil || len(out[0].Content.ContentBlocks) != 1 {
+				t.Fatalf("expected a text message first, got %#v", out)
+			}
+			msg := out[0]
+			if msg.Status == nil || *msg.Status != "completed" {
+				t.Errorf("status = %v, want completed", msg.Status)
+			}
+			block := msg.Content.ContentBlocks[0]
+			if block.Type != ResponsesOutputMessageContentTypeText {
+				t.Errorf("block type = %q, want %q", block.Type, ResponsesOutputMessageContentTypeText)
+			}
+			raw, err := json.Marshal(block)
+			if err != nil {
+				t.Fatalf("marshal: %v", err)
+			}
+			if !strings.Contains(string(raw), `"annotations":[]`) || !strings.Contains(string(raw), `"logprobs":[]`) {
+				t.Errorf("output_text block = %s, want empty annotations and logprobs arrays", raw)
+			}
+		})
+	}
+}
+
+func TestToBifrostResponsesResponse_KeepsTextAlongsideToolCalls(t *testing.T) {
+	text := "I'll list the files.\n\n"
+	finish := string(BifrostFinishReasonToolCalls)
+	cr := &BifrostChatResponse{
+		ID: "chatcmpl-1",
+		Choices: []BifrostResponseChoice{{
+			FinishReason: &finish,
+			ChatNonStreamResponseChoice: &ChatNonStreamResponseChoice{
+				Message: &ChatMessage{
+					Role:    ChatMessageRoleAssistant,
+					Content: &ChatMessageContent{ContentStr: &text},
+					ChatAssistantMessage: &ChatAssistantMessage{
+						ToolCalls: []ChatAssistantMessageToolCall{{ID: Ptr("call_1"), Type: Ptr("function"), Function: ChatAssistantMessageToolCallFunction{Name: Ptr("Bash"), Arguments: `{"command":"ls -la"}`}}},
+					},
+				},
+			},
+		}},
+	}
+
+	resp := cr.ToBifrostResponsesResponse()
+	if len(resp.Output) != 2 {
+		t.Fatalf("expected 2 output items (message + function_call), got %d", len(resp.Output))
+	}
+	if resp.Output[0].Type == nil || *resp.Output[0].Type != ResponsesMessageTypeMessage {
+		t.Fatalf("expected first output item to be the text message, got %#v", resp.Output[0].Type)
+	}
+	if resp.Output[1].Type == nil || *resp.Output[1].Type != ResponsesMessageTypeFunctionCall {
+		t.Fatalf("expected second output item to be function_call, got %#v", resp.Output[1].Type)
+	}
+}
+
 func TestToResponsesMessages_ToolResultBlocksUseResponsesInputTypes(t *testing.T) {
 	// A chat tool message with array content must become a function_call_output whose
 	// output blocks use the Responses spellings; OpenAI rejects "text" there with
