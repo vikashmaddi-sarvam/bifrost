@@ -1348,6 +1348,9 @@ func (provider *BedrockProvider) ChatCompletion(ctx *schemas.BifrostContext, key
 	if parseTracer != nil {
 		parseTracer.EndSpan(parseHandle, schemas.SpanStatusOk, "")
 	}
+	if IsDSMLLeakModel(ctx, request.Model) {
+		stripDSMLLeakConverse(bedrockResponse)
+	}
 
 	// Convert using the new response converter
 	convTracer, convHandle := providerUtils.StartResponseConvertorSpan(ctx)
@@ -1581,6 +1584,7 @@ func (provider *BedrockProvider) ChatCompletionStream(ctx *schemas.BifrostContex
 		}()
 		var finishReason *string
 		var progress converseStreamProgress
+		dsml := NewDSMLStreamFilter(ctx, request.Model)
 		chunkIndex := 0
 
 		// Process AWS Event Stream format using proper decoder
@@ -1665,6 +1669,7 @@ func (provider *BedrockProvider) ChatCompletionStream(ctx *schemas.BifrostContex
 				}
 
 				progress.observe(message, &streamEvent)
+				dsml.filterConverseEvent(&streamEvent)
 
 				if streamEvent.Usage != nil {
 					// Accumulate usage information instead of overwriting
@@ -1881,6 +1886,9 @@ func (provider *BedrockProvider) Responses(ctx *schemas.BifrostContext, key sche
 	if parseTracer != nil {
 		parseTracer.EndSpan(parseHandle, schemas.SpanStatusOk, "")
 	}
+	if IsDSMLLeakModel(ctx, request.Model) {
+		stripDSMLLeakConverse(bedrockResponse)
+	}
 
 	// Convert using the new response converter
 	convTracer, convHandle := providerUtils.StartResponseConvertorSpan(ctx)
@@ -2009,6 +2017,7 @@ func (provider *BedrockProvider) ResponsesStream(ctx *schemas.BifrostContext, po
 
 		var streamTrace *BedrockConverseTrace
 		var progress converseStreamProgress
+		dsml := NewDSMLStreamFilter(ctx, request.Model)
 		chunkIndex := 0
 
 		// Create stream state for stateful conversions (used by Converse API path)
@@ -2117,6 +2126,7 @@ func (provider *BedrockProvider) ResponsesStream(ctx *schemas.BifrostContext, po
 				}
 
 				progress.observe(message, &streamEvent)
+				dsml.filterConverseEvent(&streamEvent)
 
 				if streamEvent.Trace != nil {
 					streamTrace = streamEvent.Trace
