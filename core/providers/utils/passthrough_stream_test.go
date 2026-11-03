@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -127,5 +128,27 @@ func TestStreamPassthrough_EndsStreamFinalizesBeforeClientHangup(t *testing.T) {
 	}
 	if len(finals) != 1 || finals[0].PassthroughUsage == nil {
 		t.Fatalf("expected one final chunk with usage from response.completed, got %d", len(finals))
+	}
+}
+
+// TestStreamPassthrough_StampsChunkIndexes verifies forwarded chunks carry consecutive ChunkIndex values and the final
+// chunk the next one, as typed stream chunks do.
+func TestStreamPassthrough_StampsChunkIndexes(t *testing.T) {
+	ctx := schemas.NewBifrostContext(context.Background(), time.Time{})
+	var indexes []int
+	runner := func(_ *schemas.BifrostContext, r *schemas.BifrostResponse, err *schemas.BifrostError) (*schemas.BifrostResponse, *schemas.BifrostError) {
+		if r != nil && r.PassthroughResponse != nil {
+			indexes = append(indexes, r.PassthroughResponse.ExtraFields.ChunkIndex)
+		}
+		return r, err
+	}
+	body := strings.Repeat("data: {}\n\n", 1000) // 10,000 bytes: three 4 KB reads
+
+	ch := StreamPassthroughHTTP(ctx, runner, nil, io.NopCloser(strings.NewReader(body)), PassthroughStreamParams{StatusCode: 200, StartTime: time.Now()})
+	for range ch {
+	}
+
+	if want := []int{0, 1, 2, 3}; !slices.Equal(indexes, want) {
+		t.Fatalf("chunk indexes = %v, want %v", indexes, want)
 	}
 }
