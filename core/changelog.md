@@ -1,1 +1,2 @@
+- chore: mcp - pin mcp-go to the maximhq/mcp-go fork (v1.5.0 plus per-request client capabilities, mark3labs/mcp-go#1162) until that change is released upstream. Go SDK users building against this core must add the same replace to their go.mod: `replace github.com/mark3labs/mcp-go => github.com/maximhq/mcp-go v0.0.0-20261102181017-b7da3bc145a1`
 - fix: anthropic - Responses requests drop empty text blocks instead of forwarding them for a 400 (#9318) [@david-choi-querypie](https://github.com/david-choi-querypie)
