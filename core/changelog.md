@@ -1,1 +1,2 @@
 - fix: anthropic - Responses requests drop empty text blocks instead of forwarding them for a 400 (#9318) [@david-choi-querypie](https://github.com/david-choi-querypie)
+- fix: multi-key providers - follow-up calls on a stored response, container or video now find the key that created it instead of returning 404 from another key; video list pages across every key
