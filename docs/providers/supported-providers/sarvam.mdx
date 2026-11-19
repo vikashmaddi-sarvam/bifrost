@@ -175,7 +175,7 @@ Sarvam's TTS endpoint is **not** OpenAI-compatible: it returns JSON with base64-
 | Bifrost field | Sarvam field | Notes |
 |---------------|--------------|-------|
 | `input` | `text` | Text to synthesize (required) |
-| `voice` | `speaker` | e.g. `shubh` (v3), `anushka` (v2) |
+| `voice` | `speaker` | e.g. `shubh` (v3), `aayan_hi_conversational` (v4-flash), `anushka` (v2) |
 | `speed` | `pace` | Playback speed |
 | `language_code` | `target_language_code` | BCP-47 Indic code, e.g. `hi-IN` (**required**) |
 
@@ -193,7 +193,7 @@ curl -X POST http://localhost:8080/v1/audio/speech \
 ```
 
 <Note>
-`target_language_code` is required by Sarvam. Pass it as `language_code` or as an extra field; without it the request is rejected. `bulbul:v2` is deprecated upstream; use `bulbul:v3`.
+`target_language_code` is required by Sarvam. Pass it as `language_code` or as an extra field; without it the request is rejected. `bulbul:v2` is deprecated upstream; use `bulbul:v3` or `bulbul:v4-flash`. Speaker names are model-specific: `shubh` works on v3, `aayan_hi_conversational` on v4-flash, `anushka` on v2.
 </Note>
 
 ---
@@ -219,9 +219,13 @@ Request fields `mode` and `input_audio_codec` are read from `ExtraParams`; `lang
 
 ```bash
 curl -X POST http://localhost:8080/v1/audio/transcriptions \
-  -F "model=sarvam/saaras:v3" \
+  -F "model=sarvam/saaras:v4" \
   -F "file=@speech.wav"
 ```
+
+<Note>
+`saaras:v4` is the current model. `saaras:v3`, `saaras:v3-realtime`, `saaras-multispeaker`, `saaras:v4-multispk`, `saarika:v1` and `saarika:v2.5` are also accepted. The model string is passed to Sarvam unchanged, so any version Sarvam serves works without a Bifrost change.
+</Note>
 
 ---
 
